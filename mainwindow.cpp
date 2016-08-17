@@ -352,6 +352,8 @@ void MainWindow::on_pushButton_8_clicked()
 {
     int selected_row = this->ui->tableView->currentIndex().row() + 1;
     t_model->insertRow(selected_row);
+    t_model->setRecord(selected_row, t_model->record(this->ui->tableView->currentIndex().row()));
+    this->ui->tableView->selectRow(selected_row);
 }
 
 void MainWindow::on_pushButton_9_clicked()
@@ -386,7 +388,7 @@ void MainWindow::ReadError(QString query)
     sql ="SELECT work_date, id, name, check_in, check_out, " + work_hr + " FROM (";
     sql += "SELECT MIN(time) AS check_in, MAX(time) AS check_out, * FROM main ";
     sql += "WHERE" + query;
-    sql += " GROUP BY work_date, id)";
+    sql += " GROUP BY work_date, id ORDER BY work_date, time ASC)";
     sql += " WHERE (check_out - check_in) < 1 OR (strftime('%s', check_in) > strftime('%s', " + checkin_time + ")) ";
 
     qDebug("%s.", qPrintable(sql));
