@@ -43,6 +43,8 @@ private slots:
 
     void on_actionClear_triggered();
 
+    void on_actionDefind_triggered();
+
 private:
     Ui::MainWindow *ui;
 
@@ -50,6 +52,7 @@ private:
     void OpenDB();
     void WriteDB(QString filePath);
     void ReadError(QString query);
+    void CountLate(QString query);
     void ReadDB();
     void ReadDB(QString query);
     QString GetWhere();
@@ -60,6 +63,7 @@ private:
     void CountDayOff(QString query);
     QSqlDatabase db;
     QSqlTableModel *t_model;
+    QSqlQueryModel *error_model;
 };
 
 #endif // MAINWINDOW_H

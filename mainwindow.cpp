@@ -107,6 +107,7 @@ void MainWindow::on_pushButton_clicked()
 {
     ReadDB(GetWhere());
     ReadError(GetWhere());
+    //CountLate(GetWhere());
 }
 
 void MainWindow::on_pushButton_2_clicked()
@@ -284,7 +285,7 @@ void MainWindow::on_pushButton_7_clicked()
     }
 
     textData += "\n假日加班明細\n";
-    textData += "假日加班,上班時數\n";
+    textData += "假日加班,8小時內,兩小時內,兩小時以上\n";
 
     if(this->ui->tableView_4->selectionModel()) {
         QAbstractItemModel *model = this->ui->tableView_4->model();
@@ -305,7 +306,7 @@ void MainWindow::on_pushButton_7_clicked()
     }
 
     textData += "\n假日加班統計\n";
-    textData += "假日總加班時數\n";
+    textData += "假日總加班時數,8小時內,兩小時內,兩小時以上\n";
 
     if(this->ui->tableView_5->selectionModel()) {
         QAbstractItemModel *model = this->ui->tableView_5->model();
@@ -323,6 +324,28 @@ void MainWindow::on_pushButton_7_clicked()
             }
             textData += "\n";             // (optional: for new line segmentation)
         }
+    }
+
+    textData += "\n異常刷卡與遲到統計\n";
+    textData += "日期,員工代號,姓名,上班時間,下班時間,工作時數\n";
+
+    QTableView *table = new QTableView();
+
+    table->setWindowTitle("");
+    QAbstractItemModel *model = error_model;
+
+    int rows = model->rowCount();
+    int columns = model->columnCount();
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < columns; j++) {
+
+                textData += model->data(model->index(i,j)).toString();
+                if(j + 1 < columns) {
+                    textData += ",";      // for .csv file format
+                }
+        }
+        textData += "\n";             // (optional: for new line segmentation)
     }
 
     // [Save to file] (header file <QFile> needed)
@@ -402,21 +425,21 @@ void MainWindow::ReadError(QString query)
         exit(-1);
     }
 
-    QSqlQueryModel *model = new QSqlQueryModel;
-    model->setQuery(que);
-    model->setHeaderData(0, Qt::Horizontal, tr("日期"));
-    model->setHeaderData(1, Qt::Horizontal, tr("員工代號"));
-    model->setHeaderData(2, Qt::Horizontal, tr("姓名"));
-    model->setHeaderData(3, Qt::Horizontal, tr("上班時間"));
-    model->setHeaderData(4, Qt::Horizontal, tr("下班時間"));
-    model->setHeaderData(5, Qt::Horizontal, tr("工作時數"));
+    error_model = new QSqlQueryModel;
+    error_model->setQuery(que);
+    error_model->setHeaderData(0, Qt::Horizontal, tr("日期"));
+    error_model->setHeaderData(1, Qt::Horizontal, tr("員工代號"));
+    error_model->setHeaderData(2, Qt::Horizontal, tr("姓名"));
+    error_model->setHeaderData(3, Qt::Horizontal, tr("上班時間"));
+    error_model->setHeaderData(4, Qt::Horizontal, tr("下班時間"));
+    error_model->setHeaderData(5, Qt::Horizontal, tr("工作時數"));
 
-    if(model->rowCount() > 0) {
+    if(error_model->rowCount() > 0) {
         QTableView *table = new QTableView();
 
-        table->setWindowTitle("異常刷卡");
+        table->setWindowTitle("異常刷卡與遲到統計");
         table->setMinimumSize(650, 300);
-        table->setModel(model);
+        table->setModel(error_model);
         table->show();
     }
 }
@@ -472,6 +495,41 @@ void MainWindow::ReadDB(QString query)
         //  It cannot find the table!!!!!
        qDebug() << t_model->lastError().driverText();
     }
+}
+
+void MainWindow::CountLate(QString query)
+{
+    QSqlQuery que(db);
+
+    QString sql = "";
+
+    QString checkin_time = " CASE WHEN factory LIKE '%二廠%' THEN '08:30:00' ELSE '08:00:00' END ";
+
+    QString to_hr = "(strftime('%s', late_time)/3600) || ':' || strftime('%M:%S', strftime('%s', late_time)/86400.0 - 0.5)";
+
+    sql += "SELECT" + to_hr + " AS late_time FROM (";
+    sql += "SELECT SUM(strftime('%s', late_time) - strftime('%s', " + checkin_time + ")) AS late_time FROM (";
+    sql += "SELECT MIN(time) AS late_time, * FROM main ";
+    sql += "WHERE" + query;
+    sql += " GROUP BY work_date, id ORDER BY work_date, time ASC)";
+    sql += " WHERE (strftime('%s', late_time) > strftime('%s', " + checkin_time + "))) ";
+
+    qDebug("%s.", qPrintable(sql));
+
+    //Suppression + creation of the table
+    que.prepare(sql);
+
+    if (!que.exec()) {
+        qDebug("Error occurred creating table.");
+        qDebug("%s.", qPrintable(db.lastError().text()));
+        exit(-1);
+    }
+
+    QSqlQueryModel *model = new QSqlQueryModel;
+    model->setQuery(que);
+    model->setHeaderData(0, Qt::Horizontal, tr("遲到時數"));
+
+    //this->ui->tableView_6->setModel(model);
 }
 
 void MainWindow::OverTime(QString query)
@@ -552,17 +610,21 @@ void MainWindow::DayOff(QString query)
     qDebug("%s.", qPrintable(query));
 
     QString overtime = " CASE WHEN factory LIKE '%二廠%' THEN '08:30:00' ELSE '08:00:00' END ";
+    QString HR_10 = "36000";
+    QString HR_8 = "28800";
     QString HR_5 = "19800";
     QString HR_1_30 = "5400";
 
     QString sql = "";
-    sql += "SELECT work_date, (work_time/3600) || ':' || strftime('%M:%S', work_time/86400.0 - 0.5) AS work_time FROM (";
-    sql += "SELECT work_date, CASE WHEN strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") > " + HR_5 + " THEN strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") END AS work_time FROM main ";
+
+    sql += "SELECT work_date, (under_8HR/3600) || ':' || strftime('%M:%S', under_8HR/86400.0 - 0.5) AS under_8HR, (under_2HR/3600) || ':' || strftime('%M:%S', under_2HR/86400.0 - 0.5) AS under_2HR, (over_2HR/3600) || ':' || strftime('%M:%S', over_2HR/86400.0 - 0.5) AS over_2HR FROM (";
+    sql += "SELECT work_date, CASE WHEN work_time > " + HR_8 + " THEN " + HR_8 + " ELSE work_time END AS under_8HR, CASE WHEN (work_time - " + HR_8 + ") > 0 THEN (CASE WHEN work_time > " + HR_10 + " THEN 7200 ELSE (work_time - " + HR_8 + " ) END) ELSE 0 END AS under_2HR, CASE WHEN (work_time - " + HR_10 + ") > 0 THEN (work_time - " + HR_10 + ") ELSE '0' END AS over_2HR FROM (";
+    sql += "SELECT work_date, CASE WHEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) > " + HR_5 + " THEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) END AS work_time FROM main ";
     sql += query;
     sql += " GROUP BY work_date, id";
-    sql += ")";
+    sql += "))";
 
-    qDebug("ZZZ %s ZZZ", qPrintable(sql));
+    //qDebug("ZZZ %s ZZZ", qPrintable(sql));
 
     //Suppression + creation of the table
     que.prepare(sql);
@@ -577,6 +639,9 @@ void MainWindow::DayOff(QString query)
     model->setQuery(que);
     model->setHeaderData(0, Qt::Horizontal, tr("假日加班"));
     model->setHeaderData(1, Qt::Horizontal, tr("上班時數"));
+    model->setHeaderData(1, Qt::Horizontal, tr("八小時內"));
+    model->setHeaderData(2, Qt::Horizontal, tr("兩小時內"));
+    model->setHeaderData(3, Qt::Horizontal, tr("兩小時以上"));
 
     this->ui->tableView_4->setModel(model);
 }
@@ -588,23 +653,31 @@ void MainWindow::CountDayOff(QString query)
     qDebug("%s.", qPrintable(query));
 
     /*
-    QString sql = "";
-    sql += " SELECT (SUM(max_time - min_time)/3600) || ':' || strftime('%M:%S', SUM(max_time - min_time)/86400.0 - 0.5) FROM (SELECT strftime('%s', MAX(time)) AS max_time, strftime('%s', '08:00:00') AS min_time FROM main ";
-    sql += query;
-    sql += " GROUP BY work_date, id";
-    sql += " ) ";
-    */
-
     QString overtime = " CASE WHEN factory LIKE '%二廠%' THEN '08:30:00' ELSE '08:00:00' END ";
     QString HR_5 = "19800";
     QString HR_1_30 = "5400";
 
     QString sql = "";
     sql += "SELECT (SUM(work_time)/3600) || ':' || strftime('%M:%S', SUM(work_time)/86400.0 - 0.5) AS work_time FROM (";
-    sql += "SELECT CASE WHEN strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") > " + HR_5 + " THEN strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - strftime('%s', " + overtime + ") END AS work_time FROM main ";
+    sql += "SELECT CASE WHEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) > " + HR_5 + " THEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) END AS work_time FROM main ";
     sql += query;
     sql += " GROUP BY work_date, id";
     sql += ")";
+    */
+    QString overtime = " CASE WHEN factory LIKE '%二廠%' THEN '08:30:00' ELSE '08:00:00' END ";
+    QString HR_10 = "36000";
+    QString HR_8 = "28800";
+    QString HR_5 = "19800";
+    QString HR_1_30 = "5400";
+
+    QString sql = "";
+
+    sql += "SELECT work_date, (SUM(under_8HR)/3600) || ':' || strftime('%M:%S', SUM(under_8HR)/86400.0 - 0.5) AS under_8HR, (SUM(under_2HR)/3600) || ':' || strftime('%M:%S', SUM(under_2HR)/86400.0 - 0.5) AS under_2HR, (SUM(over_2HR)/3600) || ':' || strftime('%M:%S', SUM(over_2HR)/86400.0 - 0.5) AS over_2HR FROM (";
+    sql += "SELECT work_date, CASE WHEN work_time > " + HR_8 + " THEN " + HR_8 + " ELSE work_time END AS under_8HR, CASE WHEN (work_time - " + HR_8 + ") > 0 THEN (CASE WHEN work_time > " + HR_10 + " THEN 7200 ELSE (work_time - " + HR_8 + " ) END) ELSE 0 END AS under_2HR, CASE WHEN (work_time - " + HR_10 + ") > 0 THEN (work_time - " + HR_10 + ") ELSE '0' END AS over_2HR FROM (";
+    sql += "SELECT work_date, CASE WHEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) > " + HR_5 + " THEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) END AS work_time FROM main ";
+    sql += query;
+    sql += " GROUP BY work_date, id";
+    sql += "))";
 
     //Suppression + creation of the table
     que.prepare(sql);
@@ -618,6 +691,9 @@ void MainWindow::CountDayOff(QString query)
     QSqlQueryModel *model = new QSqlQueryModel;
     model->setQuery(que);
     model->setHeaderData(0, Qt::Horizontal, tr("假日總加班時數"));
+    model->setHeaderData(1, Qt::Horizontal, tr("八小時內"));
+    model->setHeaderData(2, Qt::Horizontal, tr("兩小時內"));
+    model->setHeaderData(3, Qt::Horizontal, tr("兩小時以上"));
 
     this->ui->tableView_5->setModel(model);
 }
@@ -1029,4 +1105,12 @@ QString MainWindow::GetDayOff(QString revert)
     }
 
     return where;
+}
+
+void MainWindow::on_actionDefind_triggered()
+{
+    QMessageBox msgBox;
+    msgBox.setWindowTitle("參數設定");
+    msgBox.setText("<一廠>08:00~17:30\r\n<二廠>08:30~18:00\r\n下班後班小時開始計算加班\r\n(請確認資料<<廠別>>欄位設定正確)");
+    msgBox.exec();
 }
