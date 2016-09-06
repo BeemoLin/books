@@ -105,8 +105,19 @@ void MainWindow::on_actionClear_triggered()
 
 void MainWindow::on_pushButton_clicked()
 {
-    ReadDB(GetWhere());
-    ReadError(GetWhere());
+    if(this->ui->lineEdit_id->text() == "") {
+        QMessageBox msgBox;
+        msgBox.setText("請先填寫查詢工號");
+        msgBox.exec();
+    } else if(this->ui->lineEdit_year->text() == "" || this->ui->lineEdit_month->text() == "") {
+        QMessageBox msgBox;
+        msgBox.setText("請先填寫查詢月份");
+        msgBox.exec();
+    } else {
+        ReadDB(GetWhere());
+        CheckWorkDay();
+        ReadError(GetWhere());
+    }
     //CountLate(GetWhere());
 }
 
@@ -408,9 +419,14 @@ void MainWindow::ReadError(QString query)
 
     QString work_hr = "((strftime('%s', check_out) - strftime('%s', check_in))/3600) || ':' || strftime('%M:%S', (strftime('%s', check_out) - strftime('%s', check_in))/86400.0 - 0.5)";
 
-    sql ="SELECT work_date, id, name, check_in, check_out, " + work_hr + " FROM (";
-    sql += "SELECT MIN(time) AS check_in, MAX(time) AS check_out, * FROM main ";
-    sql += "WHERE" + query;
+    sql = "SELECT work_date, id, name, check_in, check_out, " + work_hr + " FROM (";
+    //sql += "SELECT MIN(time) AS check_in, MAX(time) AS check_out, * FROM main ";
+    sql += "SELECT MIN(time) AS check_in, MAX(time) AS check_out, * FROM ";
+
+    // join temp table
+    sql += "(SELECT t.work_date, CASE WHEN m.time != '' THEN m.time ELSE t.time END AS time, m.factory, CASE WHEN m.id != '' THEN m.id ELSE t.id END AS id, CASE WHEN m.name != '' THEN m.name ELSE '無出勤紀錄' END AS name, m.status FROM Temp AS t LEFT JOIN main AS m ON t.work_date = m.work_date AND t.id = m.id)";
+
+    sql += " WHERE" + query;
     sql += " GROUP BY work_date, id ORDER BY work_date, time ASC)";
     sql += " WHERE (check_out - check_in) < 1 OR (strftime('%s', check_in) > strftime('%s', " + checkin_time + ")) ";
 
@@ -440,6 +456,7 @@ void MainWindow::ReadError(QString query)
         table->setWindowTitle("異常刷卡與遲到統計");
         table->setMinimumSize(650, 300);
         table->setModel(error_model);
+
         table->show();
     }
 }
@@ -672,9 +689,9 @@ void MainWindow::CountDayOff(QString query)
 
     QString sql = "";
 
-    sql += "SELECT work_date, (SUM(under_8HR)/3600) || ':' || strftime('%M:%S', SUM(under_8HR)/86400.0 - 0.5) AS under_8HR, (SUM(under_2HR)/3600) || ':' || strftime('%M:%S', SUM(under_2HR)/86400.0 - 0.5) AS under_2HR, (SUM(over_2HR)/3600) || ':' || strftime('%M:%S', SUM(over_2HR)/86400.0 - 0.5) AS over_2HR FROM (";
-    sql += "SELECT work_date, CASE WHEN work_time > " + HR_8 + " THEN " + HR_8 + " ELSE work_time END AS under_8HR, CASE WHEN (work_time - " + HR_8 + ") > 0 THEN (CASE WHEN work_time > " + HR_10 + " THEN 7200 ELSE (work_time - " + HR_8 + " ) END) ELSE 0 END AS under_2HR, CASE WHEN (work_time - " + HR_10 + ") > 0 THEN (work_time - " + HR_10 + ") ELSE '0' END AS over_2HR FROM (";
-    sql += "SELECT work_date, CASE WHEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) > " + HR_5 + " THEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) END AS work_time FROM main ";
+    sql += "SELECT (SUM(under_8HR)/3600) || ':' || strftime('%M:%S', SUM(under_8HR)/86400.0 - 0.5) AS under_8HR, (SUM(under_2HR)/3600) || ':' || strftime('%M:%S', SUM(under_2HR)/86400.0 - 0.5) AS under_2HR, (SUM(over_2HR)/3600) || ':' || strftime('%M:%S', SUM(over_2HR)/86400.0 - 0.5) AS over_2HR FROM (";
+    sql += "SELECT CASE WHEN work_time > " + HR_8 + " THEN " + HR_8 + " ELSE work_time END AS under_8HR, CASE WHEN (work_time - " + HR_8 + ") > 0 THEN (CASE WHEN work_time > " + HR_10 + " THEN 7200 ELSE (work_time - " + HR_8 + " ) END) ELSE 0 END AS under_2HR, CASE WHEN (work_time - " + HR_10 + ") > 0 THEN (work_time - " + HR_10 + ") ELSE '0' END AS over_2HR FROM (";
+    sql += "SELECT CASE WHEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) > " + HR_5 + " THEN strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) - " + HR_1_30 + " ELSE strftime('%s', MAX(time)) - (CASE WHEN strftime('%s', MIN(time)) > strftime('%s', " + overtime + ") THEN strftime('%s', MIN(time)) ELSE strftime('%s', " + overtime + ") END) END AS work_time FROM main ";
     sql += query;
     sql += " GROUP BY work_date, id";
     sql += "))";
@@ -690,10 +707,9 @@ void MainWindow::CountDayOff(QString query)
 
     QSqlQueryModel *model = new QSqlQueryModel;
     model->setQuery(que);
-    model->setHeaderData(0, Qt::Horizontal, tr("假日總加班時數"));
-    model->setHeaderData(1, Qt::Horizontal, tr("八小時內"));
-    model->setHeaderData(2, Qt::Horizontal, tr("兩小時內"));
-    model->setHeaderData(3, Qt::Horizontal, tr("兩小時以上"));
+    model->setHeaderData(0, Qt::Horizontal, tr("八小時內"));
+    model->setHeaderData(1, Qt::Horizontal, tr("兩小時內"));
+    model->setHeaderData(2, Qt::Horizontal, tr("兩小時以上"));
 
     this->ui->tableView_5->setModel(model);
 }
@@ -796,10 +812,183 @@ QString MainWindow::GetWhere()
         where += " AND ";
         where += QString("work_date like '\%\/%1\/\%'").arg(month);
     }
-
-    //where += " GROUP BY work_date, id ";
-
+    qDebug() << "Temp Sql:" << where;
     return where;
+}
+
+void MainWindow::CheckWorkDay()
+{
+    QString work_day = "";
+
+    QString id = this->ui->lineEdit_id->text();
+    QString year = this->ui->lineEdit_year->text();
+    QString month = this->ui->lineEdit_month->text();
+
+    if(!this->ui->checkBox_1->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/01', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_2->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/02', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_3->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/03', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_4->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/04', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_5->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/05', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_6->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/06', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_7->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/07', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_8->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/08', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_9->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/09', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_10->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/10', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_11->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/11', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_12->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/12', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_13->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/13', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_14->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/14', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_15->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/15', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_16->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/16', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_17->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/17', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_18->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/18', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_19->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/19', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_20->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/20', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_21->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/21', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_22->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/22', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_23->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/23', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_24->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/24', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_25->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/25', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_26->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/26', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_27->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/27', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_28->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/28', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_29->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/29', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_30->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/30', '00:00:00'),";
+    }
+
+    if(!this->ui->checkBox_31->checkState()) {
+        work_day += "('" + id + "','" + year +"/"+ month +"/31', '00:00:00'),";
+    }
+
+    db.close();
+
+    if (!db.open()) {
+        qDebug("Error occurred opening the database.");
+        qDebug("%s.", qPrintable(db.lastError().text()));
+        exit(-1);
+    }
+
+
+    QSqlQuery que(db);
+
+    QString sql = "DROP TABLE IF EXISTS Temp;";
+
+    que.prepare (sql);
+    if (!que.exec()) {
+        qDebug("Error occurred drop table.");
+        qDebug("%s", qPrintable(db.lastError().text()));
+        exit(-1);
+    }
+
+    sql = "CREATE TABLE IF NOT EXISTS Temp ([id] TEXT, [work_date] TEXT, [time] TEXT);";
+
+    que.prepare (sql);
+    if (!que.exec()) {
+        qDebug("Error occurred drop table.");
+        qDebug("%s", qPrintable(db.lastError().text()));
+        exit(-1);
+    }
+
+    sql = "INSERT INTO Temp(id, work_date, time) VALUES ";
+
+    sql += work_day;
+
+    sql += "('', '', '');";
+
+    que.prepare (sql);
+    if (!que.exec()) {
+        qDebug("Error occurred drop table.");
+        qDebug("%s", qPrintable(db.lastError().text()));
+        exit(-1);
+    }
 }
 
 QString MainWindow::GetDayOff(QString revert)

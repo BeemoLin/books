@@ -56,6 +56,7 @@ private:
     void ReadDB();
     void ReadDB(QString query);
     QString GetWhere();
+    void CheckWorkDay();
     QString GetDayOff(QString revert);
     void OverTime(QString query);
     void CountOverTime(QString query);
