@@ -317,7 +317,7 @@ void MainWindow::on_pushButton_7_clicked()
     }
 
     textData += "\n假日加班統計\n";
-    textData += "假日總加班時數,8小時內,兩小時內,兩小時以上\n";
+    textData += "8小時內,兩小時內,兩小時以上\n";
 
     if(this->ui->tableView_5->selectionModel()) {
         QAbstractItemModel *model = this->ui->tableView_5->model();
