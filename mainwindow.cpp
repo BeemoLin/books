@@ -416,6 +416,7 @@ void MainWindow::ReadError(QString query)
     QString sql = "";
 
     QString checkin_time = " CASE WHEN factory LIKE '%二廠%' THEN '08:30:00' ELSE '08:00:00' END ";
+    QString checkout_time = " CASE WHEN factory LIKE '%二廠%' THEN '17:30:00' ELSE '17:00:00' END ";
 
     QString work_hr = "((strftime('%s', check_out) - strftime('%s', check_in))/3600) || ':' || strftime('%M:%S', (strftime('%s', check_out) - strftime('%s', check_in))/86400.0 - 0.5)";
 
@@ -428,7 +429,9 @@ void MainWindow::ReadError(QString query)
 
     sql += " WHERE" + query;
     sql += " GROUP BY work_date, id ORDER BY work_date, time ASC)";
-    sql += " WHERE (check_out - check_in) < 1 OR (strftime('%s', check_in) > strftime('%s', " + checkin_time + ")) ";
+    sql += " WHERE (check_out - check_in) < 1 ";
+    sql += " OR (strftime('%s', check_in) > strftime('%s', " + checkin_time + ")) ";
+    sql += " OR (strftime('%s', check_out) < strftime('%s', " + checkout_time + ")) ";
 
     qDebug("%s.", qPrintable(sql));
 
@@ -557,6 +560,7 @@ void MainWindow::OverTime(QString query)
 
     query += " AND ";
     query += " strftime('%s', time) > strftime('%s', " + overtime + ") ";
+    query += " GROUP BY work_date, id ";
 
     QString sql = "";
     sql = "SELECT work_date, time, TIME(case when work_time > 0 then work_time else '0' end, 'unixepoch') AS work_time, TIME(case when under_2HR > 0 then under_2HR else '0' end , 'unixepoch') AS under_2HR, TIME(case when over_2HR > 0 then over_2HR else '0' end, 'unixepoch') AS over_2HR FROM (";
@@ -593,6 +597,7 @@ void MainWindow::CountOverTime(QString query)
 
     query += " AND ";
     query += " strftime('%s', time) > strftime('%s', " + overtime + ") ";
+    query += " GROUP BY work_date, id ";
 
     QString sql = "";
     sql = "SELECT ((CASE WHEN SUM(work_time) > 0 THEN SUM(work_time) ELSE '0' END)/3600) || ':' || strftime('%M:%S', (CASE WHEN SUM(work_time) > 0 THEN SUM(work_time) ELSE '0' END)/86400.0 - 0.5) AS work_time, ";
@@ -1300,6 +1305,6 @@ void MainWindow::on_actionDefind_triggered()
 {
     QMessageBox msgBox;
     msgBox.setWindowTitle("參數設定");
-    msgBox.setText("<一廠>08:00~17:30\r\n<二廠>08:30~18:00\r\n下班後班小時開始計算加班\r\n(請確認資料<<廠別>>欄位設定正確)");
+    msgBox.setText("<一廠>08:00~17:30\r\n<二廠>08:30~18:00\r\n下班後半小時開始計算加班\r\n(請確認資料<<廠別>>欄位設定正確)");
     msgBox.exec();
 }
