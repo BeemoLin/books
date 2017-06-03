@@ -722,7 +722,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>取消選擇</string>
+     <string>選擇/取消</string>
     </property>
    </widget>
    <widget class="QPushButton" name="pushButton_6">
